@@ -61,6 +61,150 @@ def log_other_exceptions(func):
     return newfunc
 
 
+# ---------------------------------------------------------------------------
+# Palette-translation constants used by RegionSet._get_block().
+#
+# These USED to be re-created on EVERY call to _get_block(), i.e. millions of
+# times per render. Hoisting them to module scope removes that per-call
+# allocation cost and lets _get_block() memoise its result (see
+# RegionSet._block_lookup_cache).
+# ---------------------------------------------------------------------------
+
+def _copper_variants(base_id, base_ns="minecraft"):
+    """Expand a copper base id to its 8 oxidation/wax variants."""
+    states = ('', 'exposed_', 'weathered_', 'oxidized_')
+    variants = []
+    for s in states:
+        variants.append(f'{base_ns}:{s}{base_id}')
+        variants.append(f'{base_ns}:waxed_{s}{base_id}')
+    return variants
+
+
+# Pre-expanded frozensets for fast `in` tests.
+_COPPER_CHEST_SET         = frozenset(_copper_variants('copper_chest'))
+_COPPER_CHAIN_SET         = frozenset(_copper_variants('copper_chain'))
+_COPPER_BARS_SET          = frozenset(_copper_variants('copper_bars'))
+_COPPER_LANTERN_SET       = frozenset(_copper_variants('copper_lantern'))
+_COPPER_LIGHTNING_ROD_SET = frozenset(_copper_variants('lightning_rod'))
+
+_WOOD_SLABS = ('minecraft:oak_slab', 'minecraft:spruce_slab', 'minecraft:birch_slab', 'minecraft:jungle_slab',
+               'minecraft:acacia_slab', 'minecraft:dark_oak_slab', 'minecraft:petrified_oak_slab',
+               'minecraft:crimson_slab', 'minecraft:warped_slab', 'minecraft:mangrove_slab',
+               'minecraft:cherry_slab', 'minecraft:bamboo_slab', 'minecraft:bamboo_mosaic_slab',
+               'minecraft:pale_oak_slab')
+
+_STONE_SLABS = ('minecraft:stone_slab', 'minecraft:sandstone_slab', 'minecraft:red_sandstone_slab',
+                'minecraft:cobblestone_slab', 'minecraft:brick_slab', 'minecraft:purpur_slab',
+                'minecraft:stone_brick_slab', 'minecraft:nether_brick_slab',
+                'minecraft:quartz_slab', 'minecraft:andesite_slab', 'minecraft:diorite_slab',
+                'minecraft:granite_slab', 'minecraft:polished_andesite_slab',
+                'minecraft:polished_diorite_slab', 'minecraft:polished_granite_slab',
+                'minecraft:red_nether_brick_slab', 'minecraft:smooth_sandstone_slab',
+                'minecraft:cut_sandstone_slab', 'minecraft:smooth_red_sandstone_slab',
+                'minecraft:cut_red_sandstone_slab', 'minecraft:end_stone_brick_slab',
+                'minecraft:mossy_cobblestone_slab', 'minecraft:mossy_stone_brick_slab',
+                'minecraft:smooth_quartz_slab', 'minecraft:smooth_stone_slab',
+                'minecraft:blackstone_slab', 'minecraft:polished_blackstone_slab',
+                'minecraft:polished_blackstone_brick_slab', 'minecraft:cobbled_deepslate_slab',
+                'minecraft:polished_deepslate_slab', 'minecraft:deepslate_brick_slab',
+                'minecraft:deepslate_tile_slab', 'minecraft:mud_brick_slab',
+                'minecraft:tuff_slab', 'minecraft:polished_tuff_slab', 'minecraft:tuff_brick_slab',
+                'minecraft:resin_brick_slab',
+                )
+
+_PRISMARINE_SLABS = ('minecraft:prismarine_slab', 'minecraft:dark_prismarine_slab',
+                     'minecraft:prismarine_brick_slab')
+
+_COPPER_SLABS = (
+    'minecraft:cut_copper_slab',
+    'minecraft:exposed_cut_copper_slab',
+    'minecraft:weathered_cut_copper_slab',
+    'minecraft:oxidized_cut_copper_slab',
+    'minecraft:waxed_cut_copper_slab',
+    'minecraft:waxed_exposed_cut_copper_slab',
+    'minecraft:waxed_weathered_cut_copper_slab',
+    'minecraft:waxed_oxidized_cut_copper_slab',
+)
+
+# Union, pre-frozenset for O(1) `in` tests on the slab branch hot path.
+_ALL_SLABS_SET = frozenset(_WOOD_SLABS + _STONE_SLABS + _PRISMARINE_SLABS + _COPPER_SLABS)
+
+# Map from slab to full-height double-slab block.
+_SLAB_TO_DOUBLE = {
+    'minecraft:stone_slab': 'minecraft:stone',
+    'minecraft:cobblestone_slab': 'minecraft:cobblestone',
+    'minecraft:sandstone_slab': 'minecraft:sandstone',
+    'minecraft:red_sandstone_slab': 'minecraft:red_sandstone',
+    'minecraft:nether_brick_slab': 'minecraft:nether_bricks',
+    'minecraft:quartz_slab': 'minecraft:quartz_block',
+    'minecraft:brick_slab': 'minecraft:bricks',
+    'minecraft:purpur_slab': 'minecraft:purpur_block',
+    'minecraft:andesite_slab': 'minecraft:andesite',
+    'minecraft:diorite_slab': 'minecraft:diorite',
+    'minecraft:granite_slab': 'minecraft:granite',
+    'minecraft:polished_andesite_slab': 'minecraft:polished_andesite',
+    'minecraft:polished_diorite_slab': 'minecraft:polished_diorite',
+    'minecraft:polished_granite_slab': 'minecraft:polished_granite',
+    'minecraft:red_nether_brick_slab': 'minecraft:red_nether_bricks',
+    'minecraft:smooth_sandstone_slab': 'minecraft:smooth_sandstone',
+    'minecraft:cut_sandstone_slab': 'minecraft:cut_sandstone',
+    'minecraft:smooth_red_sandstone_slab': 'minecraft:smooth_red_sandstone',
+    'minecraft:cut_red_sandstone_slab': 'minecraft:cut_red_sandstone',
+    'minecraft:end_stone_brick_slab': 'minecraft:end_stone_bricks',
+    'minecraft:mossy_cobblestone_slab': 'minecraft:mossy_cobblestone',
+    'minecraft:mossy_stone_brick_slab': 'minecraft:mossy_stone_bricks',
+    'minecraft:smooth_quartz_slab': 'minecraft:smooth_quartz',
+    'minecraft:smooth_stone_slab': 'minecraft:smooth_stone',
+    'minecraft:blackstone_slab': 'minecraft:blackstone',
+    'minecraft:polished_blackstone_slab': 'minecraft:polished_blackstone',
+    'minecraft:polished_blackstone_brick_slab': 'minecraft:polished_blackstone_bricks',
+    'minecraft:cobbled_deepslate_slab': 'minecraft:cobbled_deepslate',
+    'minecraft:polished_deepslate_slab': 'minecraft:polished_deepslate',
+    'minecraft:deepslate_brick_slab': 'minecraft:deepslate_bricks',
+    'minecraft:deepslate_tile_slab': 'minecraft:deepslate_tiles',
+    'minecraft:mud_brick_slab': 'minecraft:mud_bricks',
+    'minecraft:cut_copper_slab': 'minecraft:cut_copper',
+    'minecraft:exposed_cut_copper_slab': 'minecraft:exposed_cut_copper',
+    'minecraft:weathered_cut_copper_slab': 'minecraft:weathered_cut_copper',
+    'minecraft:oxidized_cut_copper_slab': 'minecraft:oxidized_cut_copper',
+    'minecraft:waxed_cut_copper_slab': 'minecraft:waxed_cut_copper',
+    'minecraft:waxed_exposed_cut_copper_slab': 'minecraft:waxed_exposed_cut_copper',
+    'minecraft:waxed_weathered_cut_copper_slab': 'minecraft:waxed_weathered_cut_copper',
+    'minecraft:waxed_oxidized_cut_copper_slab': 'minecraft:waxed_oxidized_cut_copper',
+    'minecraft:prismarine_slab': 'minecraft:prismarine',
+    'minecraft:dark_prismarine_slab': 'minecraft:dark_prismarine',
+    'minecraft:prismarine_brick_slab': 'minecraft:prismarine_bricks',
+    'minecraft:stone_brick_slab': 'minecraft:stone_bricks',
+    'minecraft:tuff_slab': 'minecraft:tuff',
+    'minecraft:polished_tuff_slab': 'minecraft:polished_tuff',
+    'minecraft:tuff_brick_slab': 'minecraft:tuff_bricks',
+    'minecraft:resin_brick_slab': 'minecraft:resin_bricks',
+    # Additional wooden double slabs not handled by the wooden slab branch
+    'minecraft:mangrove_slab': 'minecraft:mangrove_planks',
+    'minecraft:petrified_oak_slab': 'minecraft:oak_planks',
+    'minecraft:cherry_slab': 'minecraft:cherry_planks',
+    'minecraft:bamboo_slab': 'minecraft:bamboo_planks',
+    'minecraft:bamboo_mosaic_slab': 'minecraft:bamboo_mosaic',
+    'minecraft:pale_oak_slab': 'minecraft:pale_oak_planks',
+}
+
+_COLORS = ('white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray',
+           'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black')
+
+_CORAL_LIST = ('tube', 'brain', 'bubble', 'fire', 'horn')
+
+# Pre-computed sets used inside hot branches
+_STAINED_GLASS_PANES_SET = frozenset(
+    'minecraft:%s_stained_glass_pane' % c for c in _COLORS
+)
+_DEAD_CORAL_WALL_FAN_SET = frozenset(
+    'minecraft:dead_%s_coral_wall_fan' % c for c in _CORAL_LIST
+)
+_CORAL_WALL_FAN_SET = frozenset(
+    'minecraft:%s_coral_wall_fan' % c for c in _CORAL_LIST
+)
+
+
 class World(object):
     """Encapsulates the concept of a Minecraft "world". A Minecraft world is a
     level.dat file, a players directory with info about each player, a data
@@ -312,6 +456,14 @@ class RegionSet(object):
         # 16 when RegionSet is instantiated directly, e.g. from tests).
         self.regioncache = cache.LRUCache(size=max(1, int(region_cache_size)),
                                           destructor=lambda regionobj: regionobj.close())
+
+        # Memoisation for _get_block(). Keys are hashable (name, frozenset of
+        # property items); values are (block, data) tuples. The set of unique
+        # palette entries in a world is small (typically a few thousand), so an
+        # unbounded dict is fine and dramatically cuts work: the translation
+        # function used to run on every palette entry of every section of every
+        # chunk.
+        self._block_lookup_cache = {}
 
         for x, y, regionfile in self._iterate_regionfiles():
             # regionfile is a pathname
@@ -1489,113 +1641,43 @@ class RegionSet(object):
         return "<RegionSet regiondir=%r>" % self.regiondir
 
     def _get_block(self, palette_entry):
-        def generate_copper(base_id, base_ns="minecraft"):
-            variants = []
-            states = ['','exposed_','weathered_','oxidized_']
-            for i in range(len(states)):
-                variants.append(f'{base_ns}:{states[i]}{base_id}')
-                variants.append(f'{base_ns}:waxed_{states[i]}{base_id}')
-            return variants
+        """Memoised wrapper over _get_block_uncached().
 
-        wood_slabs = ('minecraft:oak_slab', 'minecraft:spruce_slab', 'minecraft:birch_slab', 'minecraft:jungle_slab',
-                      'minecraft:acacia_slab', 'minecraft:dark_oak_slab', 'minecraft:petrified_oak_slab',
-                      'minecraft:crimson_slab', 'minecraft:warped_slab', 'minecraft:mangrove_slab',
-                      'minecraft:cherry_slab', 'minecraft:bamboo_slab', 'minecraft:bamboo_mosaic_slab',
-                      'minecraft:pale_oak_slab')
-        stone_slabs = ('minecraft:stone_slab', 'minecraft:sandstone_slab','minecraft:red_sandstone_slab',
-                        'minecraft:cobblestone_slab', 'minecraft:brick_slab','minecraft:purpur_slab',
-                        'minecraft:stone_brick_slab', 'minecraft:nether_brick_slab',
-                        'minecraft:quartz_slab', "minecraft:andesite_slab", 'minecraft:diorite_slab',
-                        'minecraft:granite_slab', 'minecraft:polished_andesite_slab',
-                        'minecraft:polished_diorite_slab','minecraft:polished_granite_slab',
-                        'minecraft:red_nether_brick_slab','minecraft:smooth_sandstone_slab',
-                        'minecraft:cut_sandstone_slab','minecraft:smooth_red_sandstone_slab',
-                        'minecraft:cut_red_sandstone_slab','minecraft:end_stone_brick_slab',
-                        'minecraft:mossy_cobblestone_slab','minecraft:mossy_stone_brick_slab',
-                        'minecraft:smooth_quartz_slab','minecraft:smooth_stone_slab',
-                        'minecraft:blackstone_slab','minecraft:polished_blackstone_slab',
-                        'minecraft:polished_blackstone_brick_slab', 'minecraft:cobbled_deepslate_slab',
-                        'minecraft:polished_deepslate_slab', 'minecraft:deepslate_brick_slab',
-                        'minecraft:deepslate_tile_slab', 'minecraft:mud_brick_slab',
-                        'minecraft:tuff_slab', 'minecraft:polished_tuff_slab', 'minecraft:tuff_brick_slab',
-                        'minecraft:resin_brick_slab',
-                         )
+        This function is called once per palette entry for every chunk section.
+        In a typical world the set of unique palette entries is small (a few
+        thousand at most), but the number of CALLS is in the millions. Caching
+        by a hashable key derived from the palette entry saves a massive amount
+        of repeated work.
+        """
+        name = palette_entry['Name']
+        props = palette_entry.get('Properties')
+        # Build a hashable cache key. Palette Properties are always str->str
+        # dicts in Minecraft NBT, so frozenset(items()) is safe.
+        if props:
+            cache_key = (name, frozenset(props.items()))
+        else:
+            cache_key = (name, None)
 
-        prismarine_slabs = ('minecraft:prismarine_slab','minecraft:dark_prismarine_slab','minecraft:prismarine_brick_slab')
-        copper_slabs = (
-            'minecraft:cut_copper_slab',
-            'minecraft:exposed_cut_copper_slab',
-            'minecraft:weathered_cut_copper_slab',
-            'minecraft:oxidized_cut_copper_slab',
-            'minecraft:waxed_cut_copper_slab',
-            'minecraft:waxed_exposed_cut_copper_slab',
-            'minecraft:waxed_weathered_cut_copper_slab',
-            'minecraft:waxed_oxidized_cut_copper_slab'
-        )
-        # Map from slab to double slab block
-        slab_to_double = {
-            'minecraft:stone_slab': 'minecraft:stone',
-            'minecraft:cobblestone_slab': 'minecraft:cobblestone',
-            'minecraft:sandstone_slab': 'minecraft:sandstone',
-            'minecraft:red_sandstone_slab': 'minecraft:red_sandstone',
-            'minecraft:nether_brick_slab': 'minecraft:nether_bricks',
-            'minecraft:quartz_slab': 'minecraft:quartz_block',
-            'minecraft:brick_slab': 'minecraft:bricks',
-            'minecraft:purpur_slab': 'minecraft:purpur_block',
-            'minecraft:andesite_slab': 'minecraft:andesite',
-            'minecraft:diorite_slab': 'minecraft:diorite',
-            'minecraft:granite_slab': 'minecraft:granite',
-            'minecraft:polished_andesite_slab': 'minecraft:polished_andesite',
-            'minecraft:polished_diorite_slab': 'minecraft:polished_diorite',
-            'minecraft:polished_granite_slab': 'minecraft:polished_granite',
-            'minecraft:red_nether_brick_slab': 'minecraft:red_nether_bricks',
-            'minecraft:smooth_sandstone_slab': 'minecraft:smooth_sandstone',
-            'minecraft:cut_sandstone_slab': 'minecraft:cut_sandstone',
-            'minecraft:smooth_red_sandstone_slab': 'minecraft:smooth_red_sandstone',
-            'minecraft:cut_red_sandstone_slab': 'minecraft:cut_red_sandstone',
-            'minecraft:end_stone_brick_slab': 'minecraft:end_stone_bricks',
-            'minecraft:mossy_cobblestone_slab': 'minecraft:mossy_cobblestone',
-            'minecraft:mossy_stone_brick_slab': 'minecraft:mossy_stone_bricks',
-            'minecraft:smooth_quartz_slab': 'minecraft:smooth_quartz',
-            'minecraft:smooth_stone_slab': 'minecraft:smooth_stone',
-            'minecraft:blackstone_slab': 'minecraft:blackstone',
-            'minecraft:polished_blackstone_slab': 'minecraft:polished_blackstone',
-            'minecraft:polished_blackstone_brick_slab': 'minecraft:polished_blackstone_bricks',
-            'minecraft:cobbled_deepslate_slab': 'minecraft:cobbled_deepslate',
-            'minecraft:polished_deepslate_slab': 'minecraft:polished_deepslate',
-            'minecraft:deepslate_brick_slab': 'minecraft:deepslate_bricks',
-            'minecraft:deepslate_tile_slab': 'minecraft:deepslate_tiles',
-            'minecraft:mud_brick_slab': 'minecraft:mud_bricks',
-            'minecraft:cut_copper_slab': 'minecraft:cut_copper',
-            'minecraft:exposed_cut_copper_slab': 'minecraft:exposed_cut_copper',
-            'minecraft:weathered_cut_copper_slab': 'minecraft:weathered_cut_copper',
-            'minecraft:oxidized_cut_copper_slab': 'minecraft:oxidized_cut_copper',
-            'minecraft:waxed_cut_copper_slab': 'minecraft:waxed_cut_copper',
-            'minecraft:waxed_exposed_cut_copper_slab': 'minecraft:waxed_exposed_cut_copper',
-            'minecraft:waxed_weathered_cut_copper_slab': 'minecraft:waxed_weathered_cut_copper',
-            'minecraft:waxed_oxidized_cut_copper_slab': 'minecraft:waxed_oxidized_cut_copper',
-            'minecraft:prismarine_slab': 'minecraft:prismarine',
-            'minecraft:dark_prismarine_slab': 'minecraft:dark_prismarine',
-            'minecraft:prismarine_brick_slab': 'minecraft:prismarine_bricks',
-            'minecraft:stone_brick_slab': 'minecraft:stone_bricks',
-            'minecraft:tuff_slab': 'minecraft:tuff',
-            'minecraft:polished_tuff_slab': 'minecraft:polished_tuff',
-            'minecraft:tuff_brick_slab': 'minecraft:tuff_bricks',
-            'minecraft:resin_brick_slab': 'minecraft:resin_bricks',
+        cached = self._block_lookup_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
-            # Additional wooden double slabs not handled by the wooden slab function
-            'minecraft:mangrove_slab': 'minecraft:mangrove_planks',
-            'minecraft:petrified_oak_slab': 'minecraft:oak_planks',
-            'minecraft:cherry_slab': 'minecraft:cherry_planks',
-            'minecraft:bamboo_slab': 'minecraft:bamboo_planks',
-            'minecraft:bamboo_mosaic_slab': 'minecraft:bamboo_mosaic',
-            'minecraft:pale_oak_slab': 'minecraft:pale_oak_planks',
-        }
+        result = self._get_block_uncached(palette_entry)
+        self._block_lookup_cache[cache_key] = result
+        return result
 
-        colors = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan',
-                  'purple', 'blue', 'brown', 'green', 'red', 'black']
-        
-        coral_list = [ 'tube', 'brain', 'bubble', 'fire', 'horn']
+    def _get_block_uncached(self, palette_entry):
+        # These previously lived as local variables (rebuilt on every call).
+        # They're now module-level constants; local aliases keep the original
+        # body below unchanged for easier review / diffing.
+        wood_slabs        = _WOOD_SLABS
+        stone_slabs       = _STONE_SLABS
+        prismarine_slabs  = _PRISMARINE_SLABS
+        copper_slabs      = _COPPER_SLABS
+        slab_to_double    = _SLAB_TO_DOUBLE
+        colors            = _COLORS
+        coral_list        = _CORAL_LIST
+        generate_copper   = _copper_variants
 
         key = palette_entry['Name']
         (block, data) = self._blockmap[key]

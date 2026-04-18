@@ -10,3 +10,8 @@ pywin32-ctypes==0.2.3
 zipp==3.20.2
 requests==2.32.4
 networkx>=3.0
+
+# Optional: ISA-L drop-in replacement for zlib. When installed, nbt.py uses it
+# to decompress region chunks ~2x faster than stdlib zlib. Safe to omit; the
+# code falls back to zlib transparently.
+isal>=1.8.0; platform_machine == "x86_64" or platform_machine == "AMD64"

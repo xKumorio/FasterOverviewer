@@ -16,8 +16,22 @@
 import functools
 import gzip
 from io import BytesIO
+import logging
 import struct
 import zlib
+
+# Minecraft region chunks are stored as zlib streams. On a big render, zlib
+# decompression is one of the hottest CPU sinks. ISA-L (Intel Storage
+# Acceleration Library) provides a drop-in faster decompressor through the
+# ``isal`` package; when available we use it instead of the stdlib zlib.
+# The fallback is the standard library implementation, which is always
+# present, so this is a pure optimisation with no behaviour change.
+try:
+    from isal import isal_zlib as _fast_zlib  # type: ignore[import-not-found]
+    _decompress = _fast_zlib.decompress
+    logging.getLogger(__name__).debug("nbt: using isal_zlib for chunk decompression")
+except ImportError:
+    _decompress = zlib.decompress
 
 
 # decorator that turns the first argument from a string into an open file
@@ -89,9 +103,9 @@ class NBTFileReader(object):
         if is_gzip:
             self._file = gzip.GzipFile(fileobj=fileobj, mode='rb')
         else:
-            # pure zlib stream -- maybe later replace this with
-            # a custom zlib file object?
-            data = zlib.decompress(fileobj.read())
+            # pure zlib stream -- decompress up-front. Uses isal_zlib when
+            # installed, stdlib zlib otherwise; both share the same API.
+            data = _decompress(fileobj.read())
             self._file = BytesIO(data)
 
         # mapping of NBT type ids to functions to read them out
