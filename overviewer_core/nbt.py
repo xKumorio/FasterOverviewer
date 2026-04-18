@@ -33,6 +33,15 @@ try:
 except ImportError:
     _decompress = zlib.decompress
 
+# Same idea for gzip: ``level.dat`` and similar gzipped NBT files are opened
+# through ``gzip.GzipFile``. ``isal.igzip.IGzipFile`` is a drop-in replacement
+# built on ISA-L that decompresses noticeably faster. If the package isn't
+# installed we quietly keep the stdlib implementation.
+try:
+    from isal.igzip import IGzipFile as _GzipFile  # type: ignore[import-not-found]
+except ImportError:
+    _GzipFile = gzip.GzipFile
+
 
 # decorator that turns the first argument from a string into an open file
 # handle
@@ -101,7 +110,7 @@ class NBTFileReader(object):
         object. Setting is_gzip to False parses the file as a zlib
         stream instead."""
         if is_gzip:
-            self._file = gzip.GzipFile(fileobj=fileobj, mode='rb')
+            self._file = _GzipFile(fileobj=fileobj, mode='rb')
         else:
             # pure zlib stream -- decompress up-front. Uses isal_zlib when
             # installed, stdlib zlib otherwise; both share the same API.

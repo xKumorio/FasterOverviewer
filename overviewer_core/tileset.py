@@ -1386,6 +1386,12 @@ def get_chunks_by_tile(tile, regionset):
     eveniter = reversed(evencol_sections)
     odditer = reversed(oddcol_sections)
 
+    # The mtime for any given chunk is identical across all 24 chunk sections
+    # that share its (chunkx, chunkz) coordinates, but get_mtime() is not
+    # trivially cheap (dict lookups + region-cache access). Memoize per-call
+    # so we hit get_mtime at most once per unique chunk instead of 24 times.
+    mtime_cache = {}
+
     # There are 4 rows of chunk sections per Y value on even columns, but 3
     # rows on odd columns. This iteration order yields them in back-to-front
     # order appropriate for rendering
@@ -1398,7 +1404,12 @@ def get_chunks_by_tile(tile, regionset):
             odditer,
             eveniter, eveniter,)):
         chunkx, chunkz = unconvert_coords(col, row)
-        mtime = get_mtime(chunkx, chunkz)
+        key = (chunkx, chunkz)
+        if key in mtime_cache:
+            mtime = mtime_cache[key]
+        else:
+            mtime = get_mtime(chunkx, chunkz)
+            mtime_cache[key] = mtime
         if mtime:
             yield (col, row, chunkx, y, chunkz, mtime)
 
