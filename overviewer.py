@@ -91,6 +91,13 @@ def main():
     parser.add_argument("-p", "--processes", dest="procs", action="store", type=int,
                         help="The number of local worker processes to spawn. Defaults to the "
                         "number of CPU cores your computer has.")
+    parser.add_argument("--chunk-cache", dest="chunk_cache", action="store", type=int,
+                        help="Number of parsed chunks to keep in the per-process LRU cache. "
+                        "Overrides 'chunk_cache_size' in the config. Larger values reduce "
+                        "chunk re-parsing at the cost of memory. Default: 100.")
+    parser.add_argument("--region-cache", dest="region_cache", action="store", type=int,
+                        help="Number of region files to keep open/mapped per worker. "
+                        "Overrides 'region_cache_size' in the config. Default: 16.")
 
     parser.add_argument("--pid", dest="pid", action="store", help="Specify the pid file to use.")
     # Options that only apply to the config-less render usage
@@ -388,6 +395,12 @@ def main():
     if args.procs:
         mw_parser.set_config_item("processes", args.procs)
 
+    if args.chunk_cache is not None:
+        mw_parser.set_config_item("chunk_cache_size", args.chunk_cache)
+
+    if args.region_cache is not None:
+        mw_parser.set_config_item("region_cache_size", args.region_cache)
+
     # Now parse and return the validated config
     try:
         config = mw_parser.get_validated_config()
@@ -520,10 +533,18 @@ def main():
     # same for textures
     texcache = {}
 
-    # Set up the cache objects to use
+    # Set up the cache objects to use. "chunk_cache_size" is normalised by
+    # validateCacheSize() to a list of positive ints: a single entry means one
+    # LRU layer, multiple entries create a tiered cache (smallest->largest),
+    # which CachedRegionSet already knows how to consume. This replaces the
+    # old hard-coded single layer of 100 entries.
     caches = []
-    caches.append(cache.LRUCache(size=100))
-    # TODO: optionally more caching layers here
+    for layer_size in config['chunk_cache_size']:
+        caches.append(cache.LRUCache(size=layer_size))
+    logging.debug("Chunk cache layers: %s",
+                  [c.size for c in caches])
+    logging.debug("Region file cache size per worker: %d",
+                  config['region_cache_size'])
 
     renders = config['renders']
     for render_name, render in renders.items():
@@ -534,7 +555,8 @@ def main():
             w = worldcache[render['world']]
         except KeyError:
             try:
-                w = world.World(render['world'])
+                w = world.World(render['world'],
+                                region_cache_size=config['region_cache_size'])
             except CorruptNBTError as e:
                 logging.error("Failed to open world %r.", render['world'])
                 raise e

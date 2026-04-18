@@ -49,14 +49,14 @@ def log_other_exceptions(func):
     code is likely to swallow exceptions. This will at least make them
     visible.
     """
-    functools.wraps(func)
+    @functools.wraps(func)
     def newfunc(*args):
         try:
             return func(*args)
         except ChunkDoesntExist:
             raise
-        except Exception as e:
-            logging.exception("%s raised this exception", func.func_name)
+        except Exception:
+            logging.exception("%s raised this exception", func.__name__)
             raise
     return newfunc
 
@@ -88,8 +88,9 @@ class World(object):
 
     """
 
-    def __init__(self, worlddir):
+    def __init__(self, worlddir, region_cache_size=16):
         self.worlddir = worlddir
+        self.region_cache_size = int(region_cache_size)
 
         # This list, populated below, will hold RegionSet files that are in
         # this world
@@ -137,7 +138,7 @@ class World(object):
                 # construct a regionset object for this
                 rel = os.path.relpath(root, self.worlddir)
                 if os.path.basename(rel) != "poi":
-                    rset = RegionSet(root, rel)
+                    rset = RegionSet(root, rel, region_cache_size=self.region_cache_size)
                     if root == os.path.join(self.worlddir, "region"):
                         self.regionsets.insert(0, rset)
                     else:
@@ -268,7 +269,7 @@ class RegionSet(object):
 
     """
 
-    def __init__(self, regiondir, rel):
+    def __init__(self, regiondir, rel, region_cache_size=16):
         """Initialize a new RegionSet to access the region files in the given
         directory.
 
@@ -277,8 +278,9 @@ class RegionSet(object):
         rel is the relative path of this directory, with respect to the
         world directory.
 
-        cachesize, if specified, is the number of chunks to keep parsed and
-        in-memory.
+        region_cache_size is the number of region files to keep open (loaded
+        into memory) at the same time. Each slot holds one .mca file, so this
+        trades memory for fewer disk reads.
 
         """
         self.regiondir = os.path.normpath(regiondir)
@@ -305,8 +307,11 @@ class RegionSet(object):
         # This is populated below. It is a mapping from (x,y) region coords to filename
         self.regionfiles = {}
 
-        # This holds a cache of open regionfile objects
-        self.regioncache = cache.LRUCache(size=16, destructor=lambda regionobj: regionobj.close())
+        # This holds a cache of open regionfile objects. Size is configurable
+        # via the "region_cache_size" option in the config (or the default of
+        # 16 when RegionSet is instantiated directly, e.g. from tests).
+        self.regioncache = cache.LRUCache(size=max(1, int(region_cache_size)),
+                                          destructor=lambda regionobj: regionobj.close())
 
         for x, y, regionfile in self._iterate_regionfiles():
             # regionfile is a pathname

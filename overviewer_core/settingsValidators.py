@@ -224,6 +224,29 @@ def validateFloat(f):
 def validateInt(i):
     return int(i)
 
+
+def validatePositiveInt(i):
+    i = int(i)
+    if i <= 0:
+        raise ValidationException("Value must be a positive integer, got %r." % i)
+    return i
+
+
+def validateCacheSize(v):
+    """Accepts either a positive integer (single-tier cache size) or a list of
+    positive integers (multi-tier cache: first entry is the smallest/innermost
+    layer, later entries are larger outer layers). Returns a list of ints.
+
+    This is what powers the "optionally more caching layers" TODO that used to
+    live in overviewer.py.
+    """
+    if isinstance(v, (list, tuple)):
+        if len(v) == 0:
+            raise ValidationException("Cache size list must not be empty.")
+        return [validatePositiveInt(x) for x in v]
+    return [validatePositiveInt(v)]
+
+
 def validateStr(s):
     return str(s)
 

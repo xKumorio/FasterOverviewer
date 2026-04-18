@@ -108,6 +108,15 @@ def get_default_config():
 
     conf['processes'] = Setting(required=True, validator=int, default=-1)
 
+    # Per-process LRU cache for parsed chunks. Can be a single int (one layer)
+    # or a list of ints for a tiered cache (e.g. [500, 5000]). Larger values
+    # reduce re-parsing at the cost of memory.
+    conf['chunk_cache_size'] = Setting(required=True, validator=validateCacheSize, default=100)
+
+    # Per-process LRU cache for open region files. Each slot keeps one .mca
+    # file mapped in memory; bigger values help on fat renders but eat RAM.
+    conf['region_cache_size'] = Setting(required=True, validator=validatePositiveInt, default=16)
+
     # TODO clean up this ugly in sys.argv hack
     if platform.system() == 'Windows' or not sys.stdout.isatty() or "--simple" in sys.argv:
         obs = LoggingObserver()
