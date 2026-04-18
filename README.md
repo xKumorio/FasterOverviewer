@@ -1,3 +1,14 @@
+## Improvements in this fork
+
+Performance and usability changes on top of upstream Overviewer:
+
+- **Configurable caches** — `chunk_cache_size` and `region_cache_size` in the config file (with tiered chunk cache via a list of sizes). CLI overrides: `--chunk-cache` and `--region-cache`. Tunes LRU behaviour for large worlds without editing code.
+- **Faster zlib / gzip** — optional [`isal`](https://pypi.org/project/isal/) (ISA-L): `isal_zlib` for region-chunk decompression and `igzip` for gzipped NBT (e.g. `level.dat`). Not required; if missing, standard library `zlib` / `gzip` is used. Listed in `requirements.txt` on x86_64 / AMD64; install separately if needed: `pip install isal`.
+- **Palette block lookup** — large constant tables used by block translation are hoisted to module scope; per-palette results are memoized to avoid rebuilding dicts/sets millions of times per render.
+- **Tile → chunk scan** — `get_chunks_by_tile()` deduplicates `get_chunk_mtime()` per chunk (same mtime for all Y sections), cutting redundant region lookups per tile.
+
+<hr>
+
 ![Overviewer](https://gregoryam.com/assets/img/assets/overviewer-thumbnail.webp)
 [![Unit tests](https://github.com/GregoryAM-SP/The-Minecraft-Overviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/GregoryAM-SP/The-Minecraft-Overviewer/actions/workflows/ci.yml)
 <br><strong>Works with Minecraft Java Edition v1.2.1 - v1.21.x</strong>
